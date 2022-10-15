@@ -10,23 +10,28 @@ It should help users understand why Nix behaves as it does, and it should help d
 Nix consists of [hierarchical layers][layer-architecture].
 
 ```
-+-----------------------------------------------------------------+
-| Nix                                                             |
-|                  [ commmand line interface ]------,             |
-|                               |                   |             |
-|                           evaluates               |             |
-|                               |                manages          |
-|                               V                   |             |
-|                  [ configuration language  ]      |             |
-|                               |                   |             |
-| +-----------------------------|-------------------V-----------+ |
-| | store                  evaluates to                         | |
-| |                             |                               | |
-| |             referenced by   V       builds                  | |
-| |  [ build input ] ---> [ build plan ] ---> [ build result ]  | |
-| |                                                             | |
-| +-------------------------------------------------------------+ |
-+-----------------------------------------------------------------+
++---------------------------------------------------------------+
+| Nix             .-------------------------.                   |
+|                 | commmand line interface |------.            |
+|                 '-------------------------'      |            |
+|                              |                   |            |
+|                          evaluates               |            |
+|                              |                manages         |
+|                              V                   |            |
+|                 .-------------------------.      |            |
+|                 | configuration language  |      |            |
+|                 '-------------------------'      |            |
+|                              |                   |            |
+|                         evaluates to             |            |
+|                              |                   V            |
+| +----------------------------|------------------------------+ |
+| | store                      |                              | |
+| |            referenced by   V       builds                 | |
+| | .-------------.      .------------.      .--------------. | |
+| | | build input |----->| build plan | ---->| build result | | |
+| | '-------------'      '------------'      '--------------' | |
+| +-----------------------------------------------------------+ |
++---------------------------------------------------------------+
 ```
 
 At the top is the [command line interface](../command-ref/command-ref.md), translating from invocations of Nix executables to interactions with the underlying layers.
@@ -48,31 +53,30 @@ Each build task has a special build input which is used as *build instructions*.
 The result of a build task can be input to another build task.
 
 ```
-+-----------------------------------------------------------------------------------------+
-| store                                                                                   |
-|                   .................................................                     |
-|                   :  build plan                                   :                     |
-|                   :                                               :                     |
-|  [ build input ]-----instructions-,                               :                     |
-|                   :               |                               :                     |
-|                   :               v                               :                     |
-|  [ build input ]----------->[ build task ]--instructions-,        :                     |
-|                   :                                      |        :                     |
-|                   :                                      |        :                     |
-|                   :                                      v        :                     |
-|                   :                               [ build task ]----->[ build result ]  |
-|  [ build input ]-----instructions-,                      ^        :                     |
-|                   :               |                      |        :                     |
-|                   :               v                      |        :                     |
-|  [ build input ]----------->[ build task ]---------------'        :                     |
-|                   :               ^                               :                     |
-|                   :               |                               :                     |
-|  [ build input ]------------------'                               :                     |
-|                   :                                               :                     |
-|                   :                                               :                     |
-|                   :...............................................:                     |
-|                                                                                         |
-+-----------------------------------------------------------------------------------------+
++----------------------------------------------------------------------------------+
+| store            - - - - - - - - - - -  - - - - - - - - - - -                    |
+|                 : build plan                                 :                   |
+| .-------------. :                                            :                   |
+| | build input |---instructions-.                             :                   |
+| '-------------' :              |                             :                   |
+|                 :              v                             :                   |
+| .-------------. :        .------------.                      :                   |
+| | build input |--------->| build task |-instructions-.       :                   |
+| '-------------' :        '------------'              |       :                   |
+|                 :                                    v       :                   |
+| .-------------. :                             .------------. :  .--------------. |
+| | build input |---instructions-.              | build task |--->| build result | |
+| '-------------' :              |              '------------' :  '--------------' |
+|                 :              v                     ^       :                   |
+| .-------------. :        .------------.              |       :                   |
+| | build input |--------->| build task |--------------'       :                   |
+| '-------------' :        '------------'                      :                   |
+|                 :              ^                             :                   |
+| .-------------. :              |                             :                   |
+| | build input |----------------'                             :                   |
+| '-------------' :                                            :                   |
+|                 :_ _ _ _ _ _ _ _ _ _ _  _ _ _ _ _ _ _ _ _ _ _:                   |
++----------------------------------------------------------------------------------+
 ```
 
 [layer-architecture]: https://en.m.wikipedia.org/wiki/Multitier_architecture#Layers

@@ -7,22 +7,34 @@ The following concept map is a graphical outline of this chapter.
 Arrows indicate suggested reading order.
 
 ```
-                      ,--------------[ store ]----------------,
+                                     .-------.
+                      .--------------| store |----------------.
+                      |              '-------'                |
                       |                  |                    |
                       v                  v                    v
-               [ store object ]     [ closure ]--,      [ operations ]
+               .--------------.     .---------.         .------------.
+               | store object |     | closure |--.      | operations |
+               '--------------'     '---------'  |      '------------'
                       |               |   |      |        |        |
                       v               |   |      v        v        |
-           [ files and processes ]    |   | [ garbage collection ] |
+           .---------------------.    |   | .--------------------. |
+           | files and processes |    |   | | garbage collection | |
+           '---------------------'    |   | '--------------------' |
                /          \           |   |                        |
               v            v          |   v                        v
-[ file system object ] [ store path ] | [ derivation ]--->[ building ]
+.--------------------. .------------. | .------------.    .----------.
+| file system object | | store path | | | derivation |--->| building |
+'--------------------' '------------' | '------------'    '----------'
                   |        ^      |   |                         |
                   v        |      v   v                         |
-             [ digest ]----' [ reference scanning ]<------------'
+             .--------.    | .--------------------.             |
+             | digest |----' | reference scanning |<------------'
+             '--------'      '--------------------'
               /      \
              v        v
-[ input addressing ] [ content addressing ]
+.------------------. .--------------------.
+| input addressing | | content addressing |
+'------------------' '--------------------'
 ```
 
 ## Store Object

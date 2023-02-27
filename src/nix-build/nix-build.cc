@@ -85,7 +85,6 @@ static void main_nix_build(int argc, char * * argv)
     Strings attrPaths;
     Strings left;
     RepairFlag repair = NoRepair;
-    Path gcRoot;
     BuildMode buildMode = bmNormal;
     bool readStdin = false;
 
@@ -166,9 +165,6 @@ static void main_nix_build(int argc, char * * argv)
 
         else if (*arg == "--out-link" || *arg == "-o")
             outLink = getArg(*arg, arg, end);
-
-        else if (*arg == "--add-root")
-            gcRoot = getArg(*arg, arg, end);
 
         else if (*arg == "--dry-run")
             dryRun = true;
@@ -401,7 +397,7 @@ static void main_nix_build(int argc, char * * argv)
                 auto bashDrv = drv->requireDrvPath();
                 pathsToBuild.push_back(DerivedPath::Built {
                     .drvPath = bashDrv,
-                    .outputs = {"out"},
+                    .outputs = OutputsSpec::Names {"out"},
                 });
                 pathsToCopy.insert(bashDrv);
                 shellDrv = bashDrv;
@@ -425,7 +421,7 @@ static void main_nix_build(int argc, char * * argv)
             {
                 pathsToBuild.push_back(DerivedPath::Built {
                     .drvPath = inputDrv,
-                    .outputs = inputOutputs
+                    .outputs = OutputsSpec::Names { inputOutputs },
                 });
                 pathsToCopy.insert(inputDrv);
             }
@@ -540,7 +536,9 @@ static void main_nix_build(int argc, char * * argv)
                 "SHELL=%5%; "
                 "BASH=%5%; "
                 "set +e; "
-                R"s([ -n "$PS1" -a -z "$NIX_SHELL_PRESERVE_PROMPT" ] && PS1='\n\[\033[1;32m\][nix-shell:\w]\$\[\033[0m\] '; )s"
+                R"s([ -n "$PS1" -a -z "$NIX_SHELL_PRESERVE_PROMPT" ] && )s" +
+                (getuid() == 0 ? R"s(PS1='\n\[\033[1;31m\][nix-shell:\w]\$\[\033[0m\] '; )s"
+                               : R"s(PS1='\n\[\033[1;32m\][nix-shell:\w]\$\[\033[0m\] '; )s") +
                 "if [ \"$(type -t runHook)\" = function ]; then runHook shellHook; fi; "
                 "unset NIX_ENFORCE_PURITY; "
                 "shopt -u nullglob; "
@@ -595,7 +593,7 @@ static void main_nix_build(int argc, char * * argv)
             if (outputName == "")
                 throw Error("derivation '%s' lacks an 'outputName' attribute", store->printStorePath(drvPath));
 
-            pathsToBuild.push_back(DerivedPath::Built{drvPath, {outputName}});
+            pathsToBuild.push_back(DerivedPath::Built{drvPath, OutputsSpec::Names{outputName}});
             pathsToBuildOrdered.push_back({drvPath, {outputName}});
             drvsToCopy.insert(drvPath);
 

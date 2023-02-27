@@ -4,19 +4,20 @@
 #include "store-api.hh"
 #include "eval.hh"
 #include "eval-inline.hh"
-#include "json.hh"
 #include "value-to-json.hh"
 #include "progress-bar.hh"
 
+#include <nlohmann/json.hpp>
+
 using namespace nix;
 
-struct CmdEval : MixJSON, InstallableCommand
+struct CmdEval : MixJSON, InstallableCommand, MixReadOnlyOption
 {
     bool raw = false;
     std::optional<std::string> apply;
     std::optional<Path> writeTo;
 
-    CmdEval() : InstallableCommand(true /* supportReadOnlyMode */)
+    CmdEval() : InstallableCommand()
     {
         addFlag({
             .longName = "raw",
@@ -111,13 +112,11 @@ struct CmdEval : MixJSON, InstallableCommand
 
         else if (raw) {
             stopProgressBar();
-            std::cout << *state->coerceToString(noPos, *v, context);
+            std::cout << *state->coerceToString(noPos, *v, context, "while generating the eval command output");
         }
 
         else if (json) {
-            JSONPlaceholder jsonOut(std::cout);
-            printValueAsJSON(*state, true, *v, pos, jsonOut, context, false);
-            std::cout << std::endl;
+            std::cout << printValueAsJSON(*state, true, *v, pos, context, false).dump() << std::endl;
         }
 
         else {

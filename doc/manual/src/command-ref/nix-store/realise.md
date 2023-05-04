@@ -37,27 +37,7 @@ If no substitutes are available and no store derivation is given, realisation fa
 The resulting paths are printed on standard output.
 For non-derivation arguments, the argument itself is printed.
 
-The following flags are available:
-
-  - `--dry-run`\
-    Print on standard error a description of what packages would be
-    built or downloaded, without actually performing the operation.
-
-  - `--ignore-unknown`\
-    If a non-derivation path does not have a substitute, then silently
-    ignore it.
-
-  - `--check`\
-    This option allows you to check whether a derivation is
-    deterministic. It rebuilds the specified derivation and checks
-    whether the result is bitwise-identical with the existing outputs,
-    printing an error if that’s not the case. The outputs of the
-    specified derivation must already exist. When used with `-K`, if an
-    output path is not identical to the corresponding output from the
-    previous build, the new output path is left in
-    `/nix/store/name.check.`
-
-Special exit codes:
+## Special exit codes
 
   - `100`\
     Generic build failure, the builder process returned with a non-zero
@@ -87,6 +67,25 @@ or.
        |`--- build failure
        `---- not deterministic
 
+# Options
+
+  - `--dry-run`\
+    Print on standard error a description of what packages would be
+    built or downloaded, without actually performing the operation.
+
+  - `--ignore-unknown`\
+    If a non-derivation path does not have a substitute, then silently
+    ignore it.
+
+  - `--check`\
+    This option allows you to check whether a derivation is
+    deterministic. It rebuilds the specified derivation and checks
+    whether the result is bitwise-identical with the existing outputs,
+    printing an error if that’s not the case. The outputs of the
+    specified derivation must already exist. When used with `-K`, if an
+    output path is not identical to the corresponding output from the
+    previous build, the new output path is left in
+    `/nix/store/name.check.`
 
 {{#include ./opt-common.md}}
 

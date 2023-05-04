@@ -2,11 +2,11 @@
 
 `nix-store --add-fixed` - add paths to store using given hashing algorithm
 
-## Synopsis
+# Synopsis
 
 `nix-store` `--add-fixed` [`--recursive`] *algorithm* *paths…*
 
-## Description
+# Description
 
 The operation `--add-fixed` adds the specified paths to the Nix store.
 Unlike `--add` paths are registered using the specified hashing
@@ -14,7 +14,7 @@ algorithm, resulting in the same output path as a fixed-output
 derivation. This can be used for sources that are not available from a
 public url or broke since the download expression was written.
 
-This operation has the following options:
+# Options
 
   - `--recursive`\
     Use recursive instead of flat hashing mode, used when adding
@@ -26,7 +26,7 @@ This operation has the following options:
 
 {{#include ../env-common.md}}
 
-## Example
+# Example
 
 ```console
 $ nix-store --add-fixed sha256 ./hello-2.10.tar.gz

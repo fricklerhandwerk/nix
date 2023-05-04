@@ -8,8 +8,8 @@
 
 # Description
 
-The operation `--add` adds the specified paths to the Nix store. It
-prints the resulting paths in the Nix store on standard output.
+The operation `--add` adds the specified paths to the Nix store.
+It prints the resulting paths in the Nix store on standard output.
 
 {{#include ./opt-common.md}}
 

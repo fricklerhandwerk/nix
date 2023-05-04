@@ -12,7 +12,7 @@ The operation `--serve` provides access to the Nix store over stdin and
 stdout, and is intended to be used as a means of providing Nix store
 access to a restricted ssh user.
 
-The following flags are available:
+# Options
 
   - `--write`\
     Allow the connected client to request the realization of

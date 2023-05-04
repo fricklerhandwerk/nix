@@ -7,7 +7,7 @@
 `nix-env` {`--install` | `-i`} *args…*
   [{`--prebuilt-only` | `-b`}]
   [{`--attr` | `-A`}]
-  [`--from-expression`] [`-E`]
+  [`--from-expression` | `-E`]
   [`--from-profile` *path*]
   [`--preserve-installed` | `-P`]
   [`--remove-all` | `-r`]
@@ -69,7 +69,7 @@ a number of possible ways:
   - By default all outputs are installed for each derivation. That can
     be reduced by setting `meta.outputsToInstall`.
 
-# Flags
+# Options
 
   - `--prebuilt-only` / `-b`\
     Use only derivations for which a substitute is registered, i.e.,
@@ -103,9 +103,9 @@ a number of possible ways:
 To install a package using a specific attribute path from the active Nix expression:
 
 ```console
-$ nix-env -iA gcc40mips
+$ nix-env --install --attr gcc40mips
 installing `gcc-4.0.2'
-$ nix-env -iA xorg.xorgserver
+$ nix-env --install --attr xorg.xorgserver
 installing `xorg-server-1.2.0'
 ```
 
@@ -133,32 +133,32 @@ installing `gcc-3.3.2'
 To install all derivations in the Nix expression `foo.nix`:
 
 ```console
-$ nix-env -f ~/foo.nix -i '.*'
+$ nix-env --file ~/foo.nix --install '.*'
 ```
 
 To copy the store path with symbolic name `gcc` from another profile:
 
 ```console
-$ nix-env -i --from-profile /nix/var/nix/profiles/foo gcc
+$ nix-env --install --from-profile /nix/var/nix/profiles/foo gcc
 ```
 
 To install a specific [store derivation] (typically created by
 `nix-instantiate`):
 
 ```console
-$ nix-env -i /nix/store/fibjb1bfbpm5mrsxc4mh2d8n37sxh91i-gcc-3.4.3.drv
+$ nix-env --install /nix/store/fibjb1bfbpm5mrsxc4mh2d8n37sxh91i-gcc-3.4.3.drv
 ```
 
 To install a specific output path:
 
 ```console
-$ nix-env -i /nix/store/y3cgx0xj1p4iv9x0pnnmdhr8iyg741vk-gcc-3.4.3
+$ nix-env --install /nix/store/y3cgx0xj1p4iv9x0pnnmdhr8iyg741vk-gcc-3.4.3
 ```
 
 To install from a Nix expression specified on the command-line:
 
 ```console
-$ nix-env -f ./foo.nix -i -E \
+$ nix-env --file ./foo.nix --install --from-expression \
     'f: (f {system = "i686-linux";}).subversionWithJava'
 ```
 
@@ -170,7 +170,7 @@ function defined in `./foo.nix`.
 A dry-run tells you which paths will be downloaded or built from source:
 
 ```console
-$ nix-env -f '<nixpkgs>' -iA hello --dry-run
+$ nix-env --file '<nixpkgs>' --install --attr hello --dry-run
 (dry run; not doing anything)
 installing ‘hello-2.10’
 this path will be fetched (0.04 MiB download, 0.19 MiB unpacked):
@@ -182,6 +182,6 @@ To install Firefox from the latest revision in the Nixpkgs/NixOS 14.12
 channel:
 
 ```console
-$ nix-env -f https://github.com/NixOS/nixpkgs/archive/nixos-14.12.tar.gz -iA firefox
+$ nix-env --file https://github.com/NixOS/nixpkgs/archive/nixos-14.12.tar.gz --install --attr firefox
 ```
 

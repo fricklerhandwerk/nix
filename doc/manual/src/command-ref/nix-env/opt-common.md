@@ -1,4 +1,4 @@
-# Options
+## Command options
 
 The following options are allowed for all `nix-env` operations, but may not always have an effect.
 

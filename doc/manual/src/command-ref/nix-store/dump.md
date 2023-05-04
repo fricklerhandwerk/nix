@@ -22,16 +22,15 @@ Also, a NAR archive is *canonical*, meaning that “equal” paths always
 produce the same NAR archive. For instance, directory entries are
 always sorted so that the actual on-disk order doesn’t influence the
 result.  This means that the cryptographic hash of a NAR dump of a
-path is usable as a fingerprint of the contents of the path. Indeed,
-the hashes of store paths stored in Nix’s database (see `nix-store -q
---hash`) are SHA-256 hashes of the NAR dump of each store path.
+path is usable as a fingerprint of the contents of the path.
+Indeed, the hashes of store paths stored in Nix’s database are SHA-256 hashes of the NAR dump of each store path.
+See also [`nix-store --query --hash`](./query.md).
 
 NAR archives support filenames of unlimited length and 64-bit file
 sizes. They can contain regular files, directories, and symbolic links,
 but not other types of files (such as device nodes).
 
-A Nix archive can be unpacked using `nix-store
---restore`.
+A Nix archive can be unpacked using [`nix-store --restore`](./restore.md).
 
 {{#include ./opt-common.md}}
 

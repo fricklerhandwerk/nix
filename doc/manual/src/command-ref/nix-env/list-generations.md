@@ -8,10 +8,9 @@
 
 # Description
 
-This operation print a list of all the currently existing generations
-for the active profile. These may be switched to using the
-`--switch-generation` operation. It also prints the creation date of the
-generation, and indicates the current generation.
+This operation prints a list of all the currently existing generations for the active profile.
+These may be switched to using the [`--switch-generation`](./switch-generation.md) operation.
+It also prints the creation date of the generation, and indicates the current generation.
 
 {{#include ./opt-common.md}}
 

@@ -14,7 +14,7 @@ store. Any inconsistencies encountered are automatically repaired.
 Inconsistencies are generally the result of the Nix store or database
 being modified by non-Nix tools, or of bugs in Nix itself.
 
-This operation has the following options:
+# Options
 
   - `--check-contents`\
     Checks that the contents of every valid store path has not been
@@ -27,7 +27,7 @@ This operation has the following options:
     If any valid path is missing from the store, or (if
     `--check-contents` is given) the contents of a valid path has been
     modified, then try to repair the path by redownloading it. See
-    `nix-store --repair-path` for details.
+    [`nix-store --repair-path`](./reproducible) for details.
 
 {{#include ./opt-common.md}}
 

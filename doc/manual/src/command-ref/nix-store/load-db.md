@@ -9,7 +9,7 @@
 # Description
 
 The operation `--load-db` reads a dump of the Nix database created by
-`--dump-db` from standard input and loads it into the Nix database.
+[`--dump-db`](./dump-db.md) from standard input and loads it into the Nix database.
 
 {{#include ./opt-common.md}}
 

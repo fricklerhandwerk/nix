@@ -33,7 +33,6 @@
     - [Lookup path](language/constructs/lookup-path.md)
   - [Operators](language/operators.md)
   - [Derivations](language/derivations.md)
-    - [Advanced Attributes](language/advanced-attributes.md)
     - [Import From Derivation](language/import-from-derivation.md)
   - [Built-in Constants](language/builtin-constants.md)
   - [Built-in Functions](language/builtins.md)

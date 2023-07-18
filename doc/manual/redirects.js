@@ -355,7 +355,23 @@ const redirects = {
     "one-time-setup": "testing.html#one-time-setup",
     "using-the-ci-generated-installer-for-manual-testing": "testing.html#using-the-ci-generated-installer-for-manual-testing",
     "characterization-testing": "#characterisation-testing-unit",
-  }
+  },
+  "language/advanced-attributes.html": {
+
+    "adv-attr-allowSubstitutes": "language/derivations.html#attr-allowSubstitutes",
+    "adv-attr-allowedReferences": "language/derivations.html#attr-allowedReferences",
+    "adv-attr-allowedRequisites": "language/derivations.html#attr-allowedRequisites",
+    "adv-attr-disallowedReferences": "language/derivations.html#attr-disallowedReferences",
+    "adv-attr-disallowedRequisites": "language/derivations.html#attr-disallowedRequisites",
+    "adv-attr-exportReferencesGraph": "language/derivations.html#attr-exportReferencesGraph",
+    "adv-attr-impureEnvVars": "language/derivations.html#attr-impureEnvVars",
+    "adv-attr-outputHash": "language/derivations.html#attr-outputHash",
+    "adv-attr-outputHashAlgo": "language/derivations.html#attr-outputHashAlgo",
+    "adv-attr-outputHashMode": "language/derivations.html#attr-outputHashMode",
+    "adv-attr-passAsFile": "language/derivations.html#attr-passAsFile",
+    "adv-attr-preferLocalBuild": "language/derivations.html#attr-preferLocalBuild",
+    "adv-attr-outputHash": "language/derivations.html#attr-outputHash",
+  },
 };
 
 // the following code matches the current page's URL against the set of redirects.

@@ -5,7 +5,14 @@ AC_CONFIG_AUX_DIR(config)
 
 AC_PROG_SED
 
-# Construct a Nix system name (like "i686-linux").
+# Construct a Nix system name (like "i686-linux"):
+# https://www.gnu.org/software/autoconf/manual/html_node/Canonicalizing.html#index-AC_005fCANONICAL_005fHOST-1
+# The inital value is produced by the `config/config.guess` script:
+# upstream: https://git.savannah.gnu.org/cgit/config.git/tree/config.guess
+# It has the following form, which is not documented anywhere:
+# <cpu>-<vendor>-<os>[<version>][-<abi>]
+# If `./configure` is passed any of the `--host`, `--build`, `--target` options, the value comes from `config/config.sub` instead:
+# upstream: https://git.savannah.gnu.org/cgit/config.git/tree/config.sub
 AC_CANONICAL_HOST
 AC_MSG_CHECKING([for the canonical Nix system name])
 
@@ -145,6 +152,23 @@ if test "x$GCC_ATOMIC_BUILTINS_NEED_LIBATOMIC" = xyes; then
     LDFLAGS="-latomic $LDFLAGS"
 fi
 
+# Running the functional tests without building Nix is useful for testing
+# different pre-built versions of Nix against each other.
+AC_ARG_ENABLE(build, AS_HELP_STRING([--disable-build],[Do not build nix]),
+  ENABLE_BUILD=$enableval, ENABLE_BUILD=yes)
+AC_SUBST(ENABLE_BUILD)
+# Building without tests is useful for bootstrapping with a smaller footprint
+# or running the tests in a separate derivation. Otherwise, we do compile and
+# run them.
+AC_ARG_ENABLE(tests, AS_HELP_STRING([--disable-tests],[Do not build the tests]),
+  ENABLE_TESTS=$enableval, ENABLE_TESTS=yes)
+AC_SUBST(ENABLE_TESTS)
+
+# Building without API docs is the default as Nix' C++ interfaces are internal and unstable.
+AC_ARG_ENABLE(internal_api_docs, AS_HELP_STRING([--enable-internal-api-docs],[Build API docs for Nix's internal unstable C++ interfaces]),
+  internal_api_docs=$enableval, internal_api_docs=no)
+AC_SUBST(internal_api_docs)
+
 # LTO is currently broken with clang for unknown reasons; ld segfaults in the llvm plugin
 AC_ARG_ENABLE(lto, AS_HELP_STRING([--enable-lto],[Enable LTO (only supported with GCC) [default=no]]),
   lto=$enableval, lto=no)
@@ -172,7 +196,7 @@ fi
 
 # Look for OpenSSL, a required dependency. FIXME: this is only (maybe)
 # used by S3BinaryCacheStore.
-PKG_CHECK_MODULES([OPENSSL], [libcrypto], [CXXFLAGS="$OPENSSL_CFLAGS $CXXFLAGS"])
+PKG_CHECK_MODULES([OPENSSL], [libcrypto >= 1.1.1], [CXXFLAGS="$OPENSSL_CFLAGS $CXXFLAGS"])
 
 
 # Look for libarchive.
@@ -270,18 +294,34 @@ if test "$gc" = yes; then
 fi
 
 
+if test "$ENABLE_TESTS" = yes; then
+
 # Look for gtest.
 PKG_CHECK_MODULES([GTEST], [gtest_main])
 
 
 # Look for rapidcheck.
+AC_ARG_VAR([RAPIDCHECK_HEADERS], [include path of gtest headers shipped by RAPIDCHECK])
 # No pkg-config yet, https://github.com/emil-e/rapidcheck/issues/302
 AC_LANG_PUSH(C++)
+AC_SUBST(RAPIDCHECK_HEADERS)
+[CXXFLAGS="-I $RAPIDCHECK_HEADERS $CXXFLAGS"]
+[LIBS="-lrapidcheck -lgtest $LIBS"]
 AC_CHECK_HEADERS([rapidcheck/gtest.h], [], [], [#include <gtest/gtest.h>])
-dnl No good for C++ libs with mangled symbols
-dnl AC_CHECK_LIB([rapidcheck], [])
+dnl AC_CHECK_LIB doesn't work for C++ libs with mangled symbols
+AC_LINK_IFELSE([
+    AC_LANG_PROGRAM([[
+      #include <gtest/gtest.h>
+      #include <rapidcheck/gtest.h>
+    ]], [[
+      return RUN_ALL_TESTS();
+    ]])
+  ],
+  [],
+  [AC_MSG_ERROR([librapidcheck is not found.])])
 AC_LANG_POP(C++)
 
+fi
 
 # Look for nlohmann/json.
 PKG_CHECK_MODULES([NLOHMANN_JSON], [nlohmann_json >= 3.9])

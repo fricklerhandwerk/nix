@@ -46,7 +46,7 @@ bool touchCacheFile(const Path & path, time_t touch_time)
 Path getCachePath(std::string_view key)
 {
     return getCacheDir() + "/nix/gitv3/" +
-        hashString(htSHA256, key).to_string(Base32, false);
+        hashString(htSHA256, key).to_string(HashFormat::Base32, false);
 }
 
 // Returns the name of the HEAD branch.
@@ -62,6 +62,7 @@ std::optional<std::string> readHead(const Path & path)
         .program = "git",
         // FIXME: use 'HEAD' to avoid returning all refs
         .args = {"ls-remote", "--symref", path},
+        .isInteractive = true,
     });
     if (status != 0) return std::nullopt;
 
@@ -242,13 +243,20 @@ std::pair<StorePath, Input> fetchFromWorkdir(ref<Store> store, Input & input, co
         "lastModified",
         workdirInfo.hasHead ? std::stoull(runProgram("git", true, { "-C", actualPath, "--git-dir", gitDir, "log", "-1", "--format=%ct", "--no-show-signature", "HEAD" })) : 0);
 
+    if (workdirInfo.hasHead) {
+        input.attrs.insert_or_assign("dirtyRev", chomp(
+            runProgram("git", true, { "-C", actualPath, "--git-dir", gitDir, "rev-parse", "--verify", "HEAD" })) + "-dirty");
+        input.attrs.insert_or_assign("dirtyShortRev", chomp(
+            runProgram("git", true, { "-C", actualPath, "--git-dir", gitDir, "rev-parse", "--verify", "--short", "HEAD" })) + "-dirty");
+    }
+
     return {std::move(storePath), input};
 }
 }  // end namespace
 
 struct GitInputScheme : InputScheme
 {
-    std::optional<Input> inputFromURL(const ParsedURL & url) const override
+    std::optional<Input> inputFromURL(const ParsedURL & url, bool requireTree) const override
     {
         if (url.scheme != "git" &&
             url.scheme != "git+http" &&
@@ -266,7 +274,7 @@ struct GitInputScheme : InputScheme
         for (auto & [name, value] : url.query) {
             if (name == "rev" || name == "ref")
                 attrs.emplace(name, value);
-            else if (name == "shallow" || name == "submodules")
+            else if (name == "shallow" || name == "submodules" || name == "allRefs")
                 attrs.emplace(name, Explicit<bool> { value == "1" });
             else
                 url2.query.emplace(name, value);
@@ -282,10 +290,9 @@ struct GitInputScheme : InputScheme
         if (maybeGetStrAttr(attrs, "type") != "git") return {};
 
         for (auto & [name, value] : attrs)
-            if (name != "type" && name != "url" && name != "ref" && name != "rev" && name != "shallow" && name != "submodules" && name != "lastModified" && name != "revCount" && name != "narHash" && name != "allRefs" && name != "name")
+            if (name != "type" && name != "url" && name != "ref" && name != "rev" && name != "shallow" && name != "submodules" && name != "lastModified" && name != "revCount" && name != "narHash" && name != "allRefs" && name != "name" && name != "dirtyRev" && name != "dirtyShortRev")
                 throw Error("unsupported Git input attribute '%s'", name);
 
-        parseURL(getStrAttr(attrs, "url"));
         maybeGetBoolAttr(attrs, "shallow");
         maybeGetBoolAttr(attrs, "submodules");
         maybeGetBoolAttr(attrs, "allRefs");
@@ -297,6 +304,9 @@ struct GitInputScheme : InputScheme
 
         Input input;
         input.attrs = attrs;
+        auto url = fixGitURL(getStrAttr(attrs, "url"));
+        parseURL(url);
+        input.attrs["url"] = url;
         return input;
     }
 
@@ -309,15 +319,6 @@ struct GitInputScheme : InputScheme
         if (maybeGetBoolAttr(input.attrs, "shallow").value_or(false))
             url.query.insert_or_assign("shallow", "1");
         return url;
-    }
-
-    bool hasAllInfo(const Input & input) const override
-    {
-        bool maybeDirty = !input.getRef();
-        bool shallow = maybeGetBoolAttr(input.attrs, "shallow").value_or(false);
-        return
-            maybeGetIntAttr(input.attrs, "lastModified")
-            && (shallow || maybeDirty || maybeGetIntAttr(input.attrs, "revCount"));
     }
 
     Input applyOverrides(
@@ -350,7 +351,7 @@ struct GitInputScheme : InputScheme
 
         args.push_back(destDir);
 
-        runProgram("git", true, args);
+        runProgram("git", true, args, {}, true);
     }
 
     std::optional<Path> getSourcePath(const Input & input) override
@@ -407,7 +408,7 @@ struct GitInputScheme : InputScheme
         auto checkHashType = [&](const std::optional<Hash> & hash)
         {
             if (hash.has_value() && !(hash->type == htSHA1 || hash->type == htSHA256))
-                throw Error("Hash '%s' is not supported by Git. Supported types are sha1 and sha256.", hash->to_string(Base16, true));
+                throw Error("Hash '%s' is not supported by Git. Supported types are sha1 and sha256.", hash->to_string(HashFormat::Base16, true));
         };
 
         auto getLockedAttrs = [&]()
@@ -555,7 +556,7 @@ struct GitInputScheme : InputScheme
                             : ref == "HEAD"
                                 ? *ref
                                 : "refs/heads/" + *ref;
-                    runProgram("git", true, { "-C", repoDir, "--git-dir", gitDir, "fetch", "--quiet", "--force", "--", actualUrl, fmt("%s:%s", fetchRef, fetchRef) });
+                    runProgram("git", true, { "-C", repoDir, "--git-dir", gitDir, "fetch", "--quiet", "--force", "--", actualUrl, fmt("%s:%s", fetchRef, fetchRef) }, {}, true);
                 } catch (Error & e) {
                     if (!pathExists(localRefFile)) throw;
                     warn("could not update local clone of Git repository '%s'; continuing with the most recent version", actualUrl);
@@ -622,7 +623,7 @@ struct GitInputScheme : InputScheme
                 // everything to ensure we get the rev.
                 Activity act(*logger, lvlTalkative, actUnknown, fmt("making temporary clone of '%s'", repoDir));
                 runProgram("git", true, { "-C", tmpDir, "fetch", "--quiet", "--force",
-                        "--update-head-ok", "--", repoDir, "refs/*:refs/*" });
+                        "--update-head-ok", "--", repoDir, "refs/*:refs/*" }, {}, true);
             }
 
             runProgram("git", true, { "-C", tmpDir, "checkout", "--quiet", input.getRev()->gitRev() });
@@ -649,7 +650,7 @@ struct GitInputScheme : InputScheme
 
             {
                 Activity act(*logger, lvlTalkative, actUnknown, fmt("fetching submodules of '%s'", actualUrl));
-                runProgram("git", true, { "-C", tmpDir, "submodule", "--quiet", "update", "--init", "--recursive" });
+                runProgram("git", true, { "-C", tmpDir, "submodule", "--quiet", "update", "--init", "--recursive" }, {}, true);
             }
 
             filter = isNotDotGitDirectory;

@@ -1,14 +1,15 @@
+-include Makefile.config
+clean-files += Makefile.config
+
+ifeq ($(ENABLE_BUILD), yes)
 makefiles = \
   mk/precompiled-headers.mk \
   local.mk \
   src/libutil/local.mk \
-  src/libutil/tests/local.mk \
   src/libstore/local.mk \
-  src/libstore/tests/local.mk \
   src/libfetchers/local.mk \
   src/libmain/local.mk \
   src/libexpr/local.mk \
-  src/libexpr/tests/local.mk \
   src/libcmd/local.mk \
   src/nix/local.mk \
   src/resolve-system-dependencies/local.mk \
@@ -20,10 +21,28 @@ makefiles = \
   misc/launchd/local.mk \
   misc/upstart/local.mk \
   doc/manual/local.mk \
-  tests/local.mk \
-  tests/plugins/local.mk
+  doc/internal-api/local.mk
+endif
 
--include Makefile.config
+ifeq ($(ENABLE_BUILD)_$(ENABLE_TESTS), yes_yes)
+UNIT_TEST_ENV = _NIX_TEST_UNIT_DATA=unit-test-data
+makefiles += \
+  src/libutil/tests/local.mk \
+  src/libstore/tests/local.mk \
+  src/libexpr/tests/local.mk
+endif
+
+ifeq ($(ENABLE_TESTS), yes)
+makefiles += \
+  tests/functional/local.mk \
+  tests/functional/ca/local.mk \
+  tests/functional/dyn-drv/local.mk \
+  tests/functional/test-libstoreconsumer/local.mk \
+  tests/functional/plugins/local.mk
+else
+makefiles += \
+  mk/disable-tests.mk
+endif
 
 OPTIMIZE = 1
 

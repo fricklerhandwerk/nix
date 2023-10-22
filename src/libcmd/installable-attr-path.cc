@@ -46,7 +46,15 @@ std::pair<Value *, PosIdx> InstallableAttrPath::toValue(EvalState & state)
 
 DerivedPathsWithInfo InstallableAttrPath::toDerivedPaths()
 {
-    auto v = toValue(*state).first;
+    auto [v, pos] = toValue(*state);
+
+    if (std::optional derivedPathWithInfo = trySinglePathToDerivedPaths(
+        *v,
+        pos,
+        fmt("while evaluating the attribute '%s'", attrPath)))
+    {
+        return { *derivedPathWithInfo };
+    }
 
     Bindings & autoArgs = *cmd.getAutoArgs(*state);
 
@@ -72,7 +80,7 @@ DerivedPathsWithInfo InstallableAttrPath::toDerivedPaths()
             [&](const ExtendedOutputsSpec::Explicit & e) -> OutputsSpec {
                 return e;
             },
-        }, extendedOutputsSpec.raw());
+        }, extendedOutputsSpec.raw);
 
         auto [iter, didInsert] = byDrvPath.emplace(*drvPath, newOutputs);
 
@@ -84,9 +92,14 @@ DerivedPathsWithInfo InstallableAttrPath::toDerivedPaths()
     for (auto & [drvPath, outputs] : byDrvPath)
         res.push_back({
             .path = DerivedPath::Built {
-                .drvPath = drvPath,
+                .drvPath = makeConstantStorePathRef(drvPath),
                 .outputs = outputs,
             },
+            .info = make_ref<ExtraPathInfoValue>(ExtraPathInfoValue::Value {
+                .extendedOutputsSpec = outputs,
+                /* FIXME: reconsider backwards compatibility above
+                   so we can fill in this info. */
+            }),
         });
 
     return res;
@@ -102,7 +115,7 @@ InstallableAttrPath InstallableAttrPath::parse(
     return {
         state, cmd, v,
         prefix == "." ? "" : std::string { prefix },
-        extendedOutputsSpec
+        std::move(extendedOutputsSpec),
     };
 }
 

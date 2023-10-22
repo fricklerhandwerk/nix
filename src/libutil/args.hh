@@ -1,4 +1,5 @@
 #pragma once
+///@file
 
 #include <iostream>
 #include <map>
@@ -18,22 +19,41 @@ class Args
 {
 public:
 
-    /* Parse the command line, throwing a UsageError if something goes
-       wrong. */
+    /**
+     * Parse the command line, throwing a UsageError if something goes
+     * wrong.
+     */
     void parseCmdline(const Strings & cmdline);
 
-    /* Return a short one-line description of the command. */
+    /**
+     * Return a short one-line description of the command.
+     */
     virtual std::string description() { return ""; }
 
     virtual bool forceImpureByDefault() { return false; }
 
-    /* Return documentation about this command, in Markdown format. */
+    /**
+     * Return documentation about this command, in Markdown format.
+     */
     virtual std::string doc() { return ""; }
 
 protected:
 
+    /**
+     * The largest `size_t` is used to indicate the "any" arity, for
+     * handlers/flags/arguments that accept an arbitrary number of
+     * arguments.
+     */
     static const size_t ArityAny = std::numeric_limits<size_t>::max();
 
+    /**
+     * Arguments (flags/options and positional) have a "handler" which is
+     * caused when the argument is parsed. The handler has an arbitrary side
+     * effect, including possible affect further command-line parsing.
+     *
+     * There are many constructors in order to support many shorthand
+     * initializations, and this is used a lot.
+     */
     struct Handler
     {
         std::function<void(std::vector<std::string>)> fun;
@@ -103,7 +123,12 @@ protected:
         { }
     };
 
-    /* Options. */
+    /**
+     * Description of flags / options
+     *
+     * These are arguments like `-s` or `--long` that can (mostly)
+     * appear in any order.
+     */
     struct Flag
     {
         typedef std::shared_ptr<Flag> ptr;
@@ -117,16 +142,36 @@ protected:
         Handler handler;
         std::function<void(size_t, std::string_view)> completer;
 
+        std::optional<ExperimentalFeature> experimentalFeature;
+
         static Flag mkHashTypeFlag(std::string && longName, HashType * ht);
         static Flag mkHashTypeOptFlag(std::string && longName, std::optional<HashType> * oht);
     };
 
+    /**
+     * Index of all registered "long" flag descriptions (flags like
+     * `--long`).
+     */
     std::map<std::string, Flag::ptr> longFlags;
+
+    /**
+     * Index of all registered "short" flag descriptions (flags like
+     * `-s`).
+     */
     std::map<char, Flag::ptr> shortFlags;
 
+    /**
+     * Process a single flag and its arguments, pulling from an iterator
+     * of raw CLI args as needed.
+     */
     virtual bool processFlag(Strings::iterator & pos, Strings::iterator end);
 
-    /* Positional arguments. */
+    /**
+     * Description of positional arguments
+     *
+     * These are arguments that do not start with a `-`, and for which
+     * the order does matter.
+     */
     struct ExpectedArg
     {
         std::string label;
@@ -135,8 +180,24 @@ protected:
         std::function<void(size_t, std::string_view)> completer;
     };
 
+    /**
+     * Queue of expected positional argument forms.
+     *
+     * Positional arugment descriptions are inserted on the back.
+     *
+     * As positional arguments are passed, these are popped from the
+     * front, until there are hopefully none left as all args that were
+     * expected in fact were passed.
+     */
     std::list<ExpectedArg> expectedArgs;
 
+    /**
+     * Process some positional arugments
+     *
+     * @param finish: We have parsed everything else, and these are the only
+     * arguments left. Used because we accumulate some "pending args" we might
+     * have left over.
+     */
     virtual bool processArgs(const Strings & args, bool finish);
 
     virtual Strings::iterator rewriteArgs(Strings & args, Strings::iterator pos)
@@ -144,13 +205,17 @@ protected:
 
     std::set<std::string> hiddenCategories;
 
-    /* Called after all command line flags before the first non-flag
-       argument (if any) have been processed. */
+    /**
+     * Called after all command line flags before the first non-flag
+     * argument (if any) have been processed.
+     */
     virtual void initialFlagsProcessed() {}
 
-    /* Called after the command line has been processed if we need to generate
-       completions. Useful for commands that need to know the whole command line
-       in order to know what completions to generate. */
+    /**
+     * Called after the command line has been processed if we need to generate
+     * completions. Useful for commands that need to know the whole command line
+     * in order to know what completions to generate.
+     */
     virtual void completionHook() { }
 
 public:
@@ -164,7 +229,9 @@ public:
         expectedArgs.emplace_back(std::move(arg));
     }
 
-    /* Expect a string argument. */
+    /**
+     * Expect a string argument.
+     */
     void expectArg(const std::string & label, std::string * dest, bool optional = false)
     {
         expectArgs({
@@ -174,7 +241,9 @@ public:
         });
     }
 
-    /* Expect 0 or more arguments. */
+    /**
+     * Expect 0 or more arguments.
+     */
     void expectArgs(const std::string & label, std::vector<std::string> * dest)
     {
         expectArgs({
@@ -187,31 +256,52 @@ public:
 
     friend class MultiCommand;
 
+    /**
+     * The parent command, used if this is a subcommand.
+     */
     MultiCommand * parent = nullptr;
+
+private:
+
+    /**
+     * Experimental features needed when parsing args. These are checked
+     * after flag parsing is completed in order to support enabling
+     * experimental features coming after the flag that needs the
+     * experimental feature.
+     */
+    std::set<ExperimentalFeature> flagExperimentalFeatures;
 };
 
-/* A command is an argument parser that can be executed by calling its
-   run() method. */
+/**
+ * A command is an argument parser that can be executed by calling its
+ * run() method.
+ */
 struct Command : virtual public Args
 {
     friend class MultiCommand;
 
     virtual ~Command() { }
 
-    virtual void prepare() { };
+    /**
+     * Entry point to the command
+     */
     virtual void run() = 0;
 
     typedef int Category;
 
     static constexpr Category catDefault = 0;
 
+    virtual std::optional<ExperimentalFeature> experimentalFeature();
+
     virtual Category category() { return catDefault; }
 };
 
 typedef std::map<std::string, std::function<ref<Command>()>> Commands;
 
-/* An argument parser that supports multiple subcommands,
-   i.e. ‘<command> <subcommand>’. */
+/**
+ * An argument parser that supports multiple subcommands,
+ * i.e. ‘<command> <subcommand>’.
+ */
 class MultiCommand : virtual public Args
 {
 public:
@@ -219,7 +309,9 @@ public:
 
     std::map<Command::Category, std::string> categories;
 
-    // Selected command, if any.
+    /**
+     * Selected command, if any.
+     */
     std::optional<std::pair<std::string, ref<Command>>> command;
 
     MultiCommand(const Commands & commands);
@@ -253,8 +345,6 @@ enum CompletionType {
     ctAttrs
 };
 extern CompletionType completionType;
-
-std::optional<std::string> needsCompletion(std::string_view s);
 
 void completePath(size_t, std::string_view prefix);
 

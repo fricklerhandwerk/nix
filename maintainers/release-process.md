@@ -119,10 +119,10 @@ release:
   TODO: This script requires the right AWS credentials. Document.
 
   TODO: This script currently requires a
-  `/home/eelco/Dev/nix-pristine` and
-  `/home/eelco/Dev/nixpkgs-pristine`.
+  `/home/eelco/Dev/nix-pristine`.
 
   TODO: trigger nixos.org netlify: https://docs.netlify.com/configure-builds/build-hooks/
+
 * Prepare for the next point release by editing `.version` to
   e.g.
 
@@ -140,7 +140,7 @@ release:
   $ git checkout master
   $ git pull
   $ NEW_VERSION=2.13.0
-  $ echo -n $NEW_VERSION > .version
+  $ echo $NEW_VERSION > .version
   $ git checkout -b bump-$NEW_VERSION
   $ git commit -a -m 'Bump version'
   $ git push --set-upstream origin bump-$NEW_VERSION
@@ -152,7 +152,7 @@ release:
   from the previous milestone, and close the previous milestone. Set
   the date for the next milestone 6 weeks from now.
 
-* Create a backport label
+* Create a backport label.
 
 * Post an [announcement on Discourse](https://discourse.nixos.org/c/announcements/8), including the contents of
   `rl-$VERSION.md`.

@@ -1,22 +1,15 @@
 # Release X.Y (202?-??-??)
 
-* A new function `builtins.readFileType` is available. It is similar to
-  `builtins.readDir` but acts on a single file or directory.
+- [URL flake references](@docroot@/command-ref/new-cli/nix3-flake.md#flake-references) now support [percent-encoded](https://datatracker.ietf.org/doc/html/rfc3986#section-2.1) characters.
 
-* The `builtins.readDir` function has been optimized when encountering not-yet-known
-  file types from POSIX's `readdir`. In such cases the type of each file is/was
-  discovered by making multiple syscalls. This change makes these operations
-  lazy such that these lookups will only be performed if the attribute is used.
-  This optimization affects a minority of filesystems and operating systems.
+- [Path-like flake references](@docroot@/command-ref/new-cli/nix3-flake.md#path-like-syntax) now accept arbitrary unicode characters (except `#` and `?`).
 
-* In derivations that use structured attributes, you can now use `unsafeDiscardReferences`
-  to disable scanning a given output for runtime dependencies:
-  ```nix
-  __structuredAttrs = true;
-  unsafeDiscardReferences.out = true;
-  ```
-  This is useful e.g. when generating self-contained filesystem images with
-  their own embedded Nix store: hashes found inside such an image refer
-  to the embedded store and not to the host's Nix store.
+- The experimental feature `repl-flake` is no longer needed, as its functionality is now part of the `flakes` experimental feature. To get the previous behavior, use the `--file/--expr` flags accordingly.
 
-  This requires the `discard-references` experimental feature.
+- Introduce new flake installable syntax `flakeref#.attrPath` where the "." prefix denotes no searching of default attribute prefixes like `packages.<SYSTEM>` or `legacyPackages.<SYSTEM>`.
+
+- Nix adds `apple-virt` to the default system features on macOS systems that support virtualization. This is similar to what's done for the `kvm` system feature on Linux hosts.
+
+- Introduce a new built-in function [`builtins.convertHash`](@docroot@/language/builtins.md#builtins-convertHash).
+
+- `builtins.fetchTree` is now marked as stable.

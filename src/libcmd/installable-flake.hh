@@ -1,8 +1,33 @@
 #pragma once
+///@file
 
 #include "installable-value.hh"
 
 namespace nix {
+
+/**
+ * Extra info about a \ref DerivedPath "derived path" that ultimately
+ * come from a Flake.
+ *
+ * Invariant: every ExtraPathInfo gotten from an InstallableFlake should
+ * be possible to downcast to an ExtraPathInfoFlake.
+ */
+struct ExtraPathInfoFlake : ExtraPathInfoValue
+{
+    /**
+     * Extra struct to get around C++ designated initializer limitations
+     */
+    struct Flake {
+        FlakeRef originalRef;
+        FlakeRef lockedRef;
+    };
+
+    Flake flake;
+
+    ExtraPathInfoFlake(Value && v, Flake && f)
+        : ExtraPathInfoValue(std::move(v)), flake(f)
+    { }
+};
 
 struct InstallableFlake : InstallableValue
 {
@@ -33,15 +58,30 @@ struct InstallableFlake : InstallableValue
 
     std::pair<Value *, PosIdx> toValue(EvalState & state) override;
 
-    /* Get a cursor to every attrpath in getActualAttrPaths()
-       that exists. However if none exists, throw an exception. */
+    /**
+     * Get a cursor to every attrpath in getActualAttrPaths() that
+     * exists. However if none exists, throw an exception.
+     */
     std::vector<ref<eval_cache::AttrCursor>>
     getCursors(EvalState & state) override;
 
     std::shared_ptr<flake::LockedFlake> getLockedFlake() const;
 
-    FlakeRef nixpkgsFlakeRef() const override;
+    FlakeRef nixpkgsFlakeRef() const;
 };
+
+/**
+ * Default flake ref for referring to Nixpkgs. For flakes that don't
+ * have their own Nixpkgs input, or other installables.
+ *
+ * It is a layer violation for Nix to know about Nixpkgs; currently just
+ * `nix develop` does. Be wary of using this /
+ * `InstallableFlake::nixpkgsFlakeRef` more places.
+ */
+static inline FlakeRef defaultNixpkgsFlakeRef()
+{
+    return FlakeRef::fromAttrs({{"type","indirect"}, {"id", "nixpkgs"}});
+}
 
 ref<eval_cache::EvalCache> openEvalCache(
     EvalState & state,

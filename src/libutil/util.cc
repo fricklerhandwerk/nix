@@ -47,6 +47,26 @@ extern char * * environ __attribute__((weak));
 
 namespace nix {
 
+void initLibUtil() {
+    // Check that exception handling works. Exception handling has been observed
+    // not to work on darwin when the linker flags aren't quite right.
+    // In this case we don't want to expose the user to some unrelated uncaught
+    // exception, but rather tell them exactly that exception handling is
+    // broken.
+    // When exception handling fails, the message tends to be printed by the
+    // C++ runtime, followed by an abort.
+    // For example on macOS we might see an error such as
+    // libc++abi: terminating with uncaught exception of type nix::SysError: error: C++ exception handling is broken. This would appear to be a problem with the way Nix was compiled and/or linked and/or loaded.
+    bool caught = false;
+    try {
+        throwExceptionSelfCheck();
+    } catch (const nix::Error & _e) {
+        caught = true;
+    }
+    // This is not actually the main point of this check, but let's make sure anyway:
+    assert(caught);
+}
+
 std::optional<std::string> getEnv(const std::string & key)
 {
     char * value = getenv(key.c_str());
@@ -54,6 +74,11 @@ std::optional<std::string> getEnv(const std::string & key)
     return std::string(value);
 }
 
+std::optional<std::string> getEnvNonEmpty(const std::string & key) {
+    auto value = getEnv(key);
+    if (value == "") return {};
+    return value;
+}
 
 std::map<std::string, std::string> getEnv()
 {
@@ -256,6 +281,17 @@ bool pathExists(const Path & path)
     if (errno != ENOENT && errno != ENOTDIR)
         throw SysError("getting status of %1%", path);
     return false;
+}
+
+bool pathAccessible(const Path & path)
+{
+    try {
+        return pathExists(path);
+    } catch (SysError & e) {
+        // swallow EPERM
+        if (e.errNo == EPERM) return false;
+        throw;
+    }
 }
 
 
@@ -523,7 +559,7 @@ void deletePath(const Path & path)
 
 void deletePath(const Path & path, uint64_t & bytesFreed)
 {
-    //Activity act(*logger, lvlDebug, format("recursively deleting path '%1%'") % path);
+    //Activity act(*logger, lvlDebug, "recursively deleting path '%1%'", path);
     bytesFreed = 0;
     _deletePath(path, bytesFreed);
 }
@@ -1065,12 +1101,14 @@ static pid_t doFork(bool allowVfork, std::function<void()> fun)
 }
 
 
+#if __linux__
 static int childEntry(void * arg)
 {
     auto main = (std::function<void()> *) arg;
     (*main)();
     return 1;
 }
+#endif
 
 
 pid_t startProcess(std::function<void()> fun, const ProcessOptions & options)
@@ -1131,9 +1169,9 @@ std::vector<char *> stringsToCharPtrs(const Strings & ss)
 }
 
 std::string runProgram(Path program, bool searchPath, const Strings & args,
-    const std::optional<std::string> & input)
+    const std::optional<std::string> & input, bool isInteractive)
 {
-    auto res = runProgram(RunOptions {.program = program, .searchPath = searchPath, .args = args, .input = input});
+    auto res = runProgram(RunOptions {.program = program, .searchPath = searchPath, .args = args, .input = input, .isInteractive = isInteractive});
 
     if (!statusOk(res.first))
         throw ExecError(res.first, "program '%1%' %2%", program, statusToString(res.first));
@@ -1182,6 +1220,16 @@ void runProgram2(const RunOptions & options)
     // be shared (technically this is undefined, but in practice that's the
     // case), so we can't use it if we alter the environment
     processOptions.allowVfork = !options.environment;
+
+    std::optional<Finally<std::function<void()>>> resumeLoggerDefer;
+    if (options.isInteractive) {
+        logger->pause();
+        resumeLoggerDefer.emplace(
+            []() {
+                logger->resume();
+            }
+        );
+    }
 
     /* Fork. */
     Pid pid = startProcess([&]() {
@@ -1394,14 +1442,14 @@ std::string statusToString(int status)
 {
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
         if (WIFEXITED(status))
-            return (format("failed with exit code %1%") % WEXITSTATUS(status)).str();
+            return fmt("failed with exit code %1%", WEXITSTATUS(status));
         else if (WIFSIGNALED(status)) {
             int sig = WTERMSIG(status);
 #if HAVE_STRSIGNAL
             const char * description = strsignal(sig);
-            return (format("failed due to signal %1% (%2%)") % sig % description).str();
+            return fmt("failed due to signal %1% (%2%)", sig, description);
 #else
-            return (format("failed due to signal %1%") % sig).str();
+            return fmt("failed due to signal %1%", sig);
 #endif
         }
         else
@@ -1467,10 +1515,10 @@ bool shouldANSI()
 {
     return isatty(STDERR_FILENO)
         && getEnv("TERM").value_or("dumb") != "dumb"
-        && !getEnv("NO_COLOR").has_value();
+        && !(getEnv("NO_COLOR").has_value() || getEnv("NOCOLOR").has_value());
 }
 
-std::string filterANSIEscapes(const std::string & s, bool filterAll, unsigned int width)
+std::string filterANSIEscapes(std::string_view s, bool filterAll, unsigned int width)
 {
     std::string t, e;
     size_t w = 0;
@@ -1737,13 +1785,39 @@ void triggerInterrupt()
 }
 
 static sigset_t savedSignalMask;
+static bool savedSignalMaskIsSet = false;
+
+void setChildSignalMask(sigset_t * sigs)
+{
+    assert(sigs); // C style function, but think of sigs as a reference
+
+#if _POSIX_C_SOURCE >= 1 || _XOPEN_SOURCE || _POSIX_SOURCE
+    sigemptyset(&savedSignalMask);
+    // There's no "assign" or "copy" function, so we rely on (math) idempotence
+    // of the or operator: a or a = a.
+    sigorset(&savedSignalMask, sigs, sigs);
+#else
+    // Without sigorset, our best bet is to assume that sigset_t is a type that
+    // can be assigned directly, such as is the case for a sigset_t defined as
+    // an integer type.
+    savedSignalMask = *sigs;
+#endif
+
+    savedSignalMaskIsSet = true;
+}
+
+void saveSignalMask() {
+    if (sigprocmask(SIG_BLOCK, nullptr, &savedSignalMask))
+        throw SysError("querying signal mask");
+
+    savedSignalMaskIsSet = true;
+}
 
 void startSignalHandlerThread()
 {
     updateWindowSize();
 
-    if (sigprocmask(SIG_BLOCK, nullptr, &savedSignalMask))
-        throw SysError("querying signal mask");
+    saveSignalMask();
 
     sigset_t set;
     sigemptyset(&set);
@@ -1760,6 +1834,20 @@ void startSignalHandlerThread()
 
 static void restoreSignals()
 {
+    // If startSignalHandlerThread wasn't called, that means we're not running
+    // in a proper libmain process, but a process that presumably manages its
+    // own signal handlers. Such a process should call either
+    //  - initNix(), to be a proper libmain process
+    //  - startSignalHandlerThread(), to resemble libmain regarding signal
+    //    handling only
+    //  - saveSignalMask(), for processes that define their own signal handling
+    //    thread
+    // TODO: Warn about this? Have a default signal mask? The latter depends on
+    //       whether we should generally inherit signal masks from the caller.
+    //       I don't know what the larger unix ecosystem expects from us here.
+    if (!savedSignalMaskIsSet)
+        return;
+
     if (sigprocmask(SIG_SETMASK, &savedSignalMask, nullptr))
         throw SysError("restoring signals");
 }
@@ -1782,6 +1870,7 @@ void setStackSize(size_t stackSize)
 
 #if __linux__
 static AutoCloseFD fdSavedMountNamespace;
+static AutoCloseFD fdSavedRoot;
 #endif
 
 void saveMountNamespace()
@@ -1789,10 +1878,11 @@ void saveMountNamespace()
 #if __linux__
     static std::once_flag done;
     std::call_once(done, []() {
-        AutoCloseFD fd = open("/proc/self/ns/mnt", O_RDONLY);
-        if (!fd)
+        fdSavedMountNamespace = open("/proc/self/ns/mnt", O_RDONLY);
+        if (!fdSavedMountNamespace)
             throw SysError("saving parent mount namespace");
-        fdSavedMountNamespace = std::move(fd);
+
+        fdSavedRoot = open("/proc/self/root", O_RDONLY);
     });
 #endif
 }
@@ -1805,9 +1895,16 @@ void restoreMountNamespace()
 
         if (fdSavedMountNamespace && setns(fdSavedMountNamespace.get(), CLONE_NEWNS) == -1)
             throw SysError("restoring parent mount namespace");
-        if (chdir(savedCwd.c_str()) == -1) {
-            throw SysError("restoring cwd");
+
+        if (fdSavedRoot) {
+            if (fchdir(fdSavedRoot.get()))
+                throw SysError("chdir into saved root");
+            if (chroot("."))
+                throw SysError("chroot into saved root");
         }
+
+        if (chdir(savedCwd.c_str()) == -1)
+            throw SysError("restoring cwd");
     } catch (Error & e) {
         debug(e.msg());
     }
@@ -1961,7 +2058,7 @@ std::string showBytes(uint64_t bytes)
 
 
 // FIXME: move to libstore/build
-void commonChildInit(Pipe & logPipe)
+void commonChildInit()
 {
     logger = makeSimpleLogger();
 
@@ -1974,10 +2071,6 @@ void commonChildInit(Pipe & logPipe)
        terminal signals. */
     if (setsid() == -1)
         throw SysError("creating a new session");
-
-    /* Dup the write side of the logger pipe into stderr. */
-    if (dup2(logPipe.writeSide.get(), STDERR_FILENO) == -1)
-        throw SysError("cannot pipe standard error into log file");
 
     /* Dup stderr to stdout. */
     if (dup2(STDERR_FILENO, STDOUT_FILENO) == -1)

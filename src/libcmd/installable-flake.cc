@@ -28,6 +28,11 @@ namespace nix {
 std::vector<std::string> InstallableFlake::getActualAttrPaths()
 {
     std::vector<std::string> res;
+    if (attrPaths.size() == 1 && attrPaths.front().starts_with(".")){
+        attrPaths.front().erase(0,1);
+        res.push_back(attrPaths.front());
+        return res;
+    }
 
     for (auto & prefix : prefixes)
         res.push_back(prefix + *attrPaths.begin());
@@ -95,30 +100,13 @@ DerivedPathsWithInfo InstallableFlake::toDerivedPaths()
         // FIXME: use eval cache?
         auto v = attr->forceValue();
 
-        if (v.type() == nPath) {
-            PathSet context;
-            auto storePath = state->copyPathToStore(context, Path(v.path));
-            return {{
-                .path = DerivedPath::Opaque {
-                    .path = std::move(storePath),
-                }
-            }};
+        if (std::optional derivedPathWithInfo = trySinglePathToDerivedPaths(
+            v,
+            noPos,
+            fmt("while evaluating the flake output attribute '%s'", attrPath)))
+        {
+            return { *derivedPathWithInfo };
         }
-
-        else if (v.type() == nString) {
-            PathSet context;
-            auto s = state->forceString(v, context, noPos, fmt("while evaluating the flake output attribute '%s'", attrPath));
-            auto storePath = state->store->maybeParseStorePath(s);
-            if (storePath && context.count(std::string(s))) {
-                return {{
-                    .path = DerivedPath::Opaque {
-                        .path = std::move(*storePath),
-                    }
-                }};
-            } else
-                throw Error("flake output attribute '%s' evaluates to the string '%s' which is not a store path", attrPath, s);
-        }
-
         else
             throw Error("flake output attribute '%s' is not a derivation or path", attrPath);
     }
@@ -135,7 +123,7 @@ DerivedPathsWithInfo InstallableFlake::toDerivedPaths()
 
     return {{
         .path = DerivedPath::Built {
-            .drvPath = std::move(drvPath),
+            .drvPath = makeConstantStorePathRef(std::move(drvPath)),
             .outputs = std::visit(overloaded {
                 [&](const ExtendedOutputsSpec::Default & d) -> OutputsSpec {
                     std::set<std::string> outputsToInstall;
@@ -158,15 +146,18 @@ DerivedPathsWithInfo InstallableFlake::toDerivedPaths()
                 [&](const ExtendedOutputsSpec::Explicit & e) -> OutputsSpec {
                     return e;
                 },
-            }, extendedOutputsSpec.raw()),
+            }, extendedOutputsSpec.raw),
         },
-        .info = {
-            .priority = priority,
-            .originalRef = flakeRef,
-            .resolvedRef = getLockedFlake()->flake.lockedRef,
-            .attrPath = attrPath,
-            .extendedOutputsSpec = extendedOutputsSpec,
-        }
+        .info = make_ref<ExtraPathInfoFlake>(
+            ExtraPathInfoValue::Value {
+                .priority = priority,
+                .attrPath = attrPath,
+                .extendedOutputsSpec = extendedOutputsSpec,
+            },
+            ExtraPathInfoFlake::Flake {
+                .originalRef = flakeRef,
+                .lockedRef = getLockedFlake()->flake.lockedRef,
+            }),
     }};
 }
 
@@ -178,8 +169,7 @@ std::pair<Value *, PosIdx> InstallableFlake::toValue(EvalState & state)
 std::vector<ref<eval_cache::AttrCursor>>
 InstallableFlake::getCursors(EvalState & state)
 {
-    auto evalCache = openEvalCache(state,
-        std::make_shared<flake::LockedFlake>(lockFlake(state, flakeRef, lockFlags)));
+    auto evalCache = openEvalCache(state, getLockedFlake());
 
     auto root = evalCache->getRoot();
 
@@ -213,6 +203,7 @@ std::shared_ptr<flake::LockedFlake> InstallableFlake::getLockedFlake() const
 {
     if (!_lockedFlake) {
         flake::LockFlags lockFlagsApplyConfig = lockFlags;
+        // FIXME why this side effect?
         lockFlagsApplyConfig.applyNixConfig = true;
         _lockedFlake = std::make_shared<flake::LockedFlake>(lockFlake(*state, flakeRef, lockFlagsApplyConfig));
     }
@@ -230,7 +221,7 @@ FlakeRef InstallableFlake::nixpkgsFlakeRef() const
         }
     }
 
-    return Installable::nixpkgsFlakeRef();
+    return defaultNixpkgsFlakeRef();
 }
 
 }

@@ -1,4 +1,5 @@
 #pragma once
+///@file
 
 #include <map>
 #include <vector>
@@ -21,7 +22,9 @@ MakeError(UndefinedVarError, Error);
 MakeError(MissingArgumentError, EvalError);
 MakeError(RestrictedPathError, Error);
 
-/* Position objects. */
+/**
+ * Position objects.
+ */
 struct Pos
 {
     uint32_t line;
@@ -31,7 +34,7 @@ struct Pos
     struct Stdin { ref<std::string> source; };
     struct String { ref<std::string> source; };
 
-    typedef std::variant<none_tag, Stdin, String, Path> Origin;
+    typedef std::variant<none_tag, Stdin, String, SourcePath> Origin;
 
     Origin origin;
 
@@ -132,7 +135,9 @@ class EvalState;
 struct StaticEnv;
 
 
-/* An attribute path is a sequence of attribute names. */
+/**
+ * An attribute path is a sequence of attribute names.
+ */
 struct AttrName
 {
     Symbol symbol;
@@ -150,6 +155,10 @@ std::string showAttrPath(const SymbolTable & symbols, const AttrPath & attrPath)
 
 struct Expr
 {
+    static unsigned long nrExprs;
+    Expr() {
+        nrExprs++;
+    }
     virtual ~Expr() { };
     virtual void show(const SymbolTable & symbols, std::ostream & str) const;
     virtual void bindVars(EvalState & es, const std::shared_ptr<const StaticEnv> & env);
@@ -166,18 +175,16 @@ struct Expr
 
 struct ExprInt : Expr
 {
-    NixInt n;
     Value v;
-    ExprInt(NixInt n) : n(n) { v.mkInt(n); };
+    ExprInt(NixInt n) { v.mkInt(n); };
     Value * maybeThunk(EvalState & state, Env & env) override;
     COMMON_METHODS
 };
 
 struct ExprFloat : Expr
 {
-    NixFloat nf;
     Value v;
-    ExprFloat(NixFloat nf) : nf(nf) { v.mkFloat(nf); };
+    ExprFloat(NixFloat nf) { v.mkFloat(nf); };
     Value * maybeThunk(EvalState & state, Env & env) override;
     COMMON_METHODS
 };
@@ -212,11 +219,11 @@ struct ExprVar : Expr
        or function argument) or from a "with". */
     bool fromWith;
 
-    /* In the former case, the value is obtained by going `level'
+    /* In the former case, the value is obtained by going `level`
        levels up from the current environment and getting the
-       `displ'th value in that environment.  In the latter case, the
-       value is obtained by getting the attribute named `name' from
-       the set stored in the environment that is `level' levels up
+       `displ`th value in that environment.  In the latter case, the
+       value is obtained by getting the attribute named `name` from
+       the set stored in the environment that is `level` levels up
        from the current one.*/
     Level level;
     Displacement displ;
@@ -233,7 +240,7 @@ struct ExprSelect : Expr
     PosIdx pos;
     Expr * e, * def;
     AttrPath attrPath;
-    ExprSelect(const PosIdx & pos, Expr * e, const AttrPath && attrPath, Expr * def) : pos(pos), e(e), def(def), attrPath(std::move(attrPath)) { };
+    ExprSelect(const PosIdx & pos, Expr * e, AttrPath attrPath, Expr * def) : pos(pos), e(e), def(def), attrPath(std::move(attrPath)) { };
     ExprSelect(const PosIdx & pos, Expr * e, Symbol name) : pos(pos), e(e), def(0) { attrPath.push_back(AttrName(name)); };
     PosIdx getPos() const override { return pos; }
     COMMON_METHODS
@@ -243,7 +250,7 @@ struct ExprOpHasAttr : Expr
 {
     Expr * e;
     AttrPath attrPath;
-    ExprOpHasAttr(Expr * e, const AttrPath && attrPath) : e(e), attrPath(std::move(attrPath)) { };
+    ExprOpHasAttr(Expr * e, AttrPath attrPath) : e(e), attrPath(std::move(attrPath)) { };
     PosIdx getPos() const override { return e->getPos(); }
     COMMON_METHODS
 };

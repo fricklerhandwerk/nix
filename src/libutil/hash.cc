@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstring>
 
+#include <openssl/crypto.h>
 #include <openssl/md5.h>
 #include <openssl/sha.h>
 
@@ -15,7 +16,6 @@
 #include <fcntl.h>
 
 namespace nix {
-
 
 static size_t regularHashSize(HashType type) {
     switch (type) {
@@ -71,12 +71,13 @@ const std::string base16Chars = "0123456789abcdef";
 
 static std::string printHash16(const Hash & hash)
 {
-    char buf[hash.hashSize * 2];
+    std::string buf;
+    buf.reserve(hash.hashSize * 2);
     for (unsigned int i = 0; i < hash.hashSize; i++) {
-        buf[i * 2] = base16Chars[hash.hash[i] >> 4];
-        buf[i * 2 + 1] = base16Chars[hash.hash[i] & 0x0f];
+        buf.push_back(base16Chars[hash.hash[i] >> 4]);
+        buf.push_back(base16Chars[hash.hash[i] & 0x0f]);
     }
-    return std::string(buf, hash.hashSize * 2);
+    return buf;
 }
 
 
@@ -110,27 +111,27 @@ static std::string printHash32(const Hash & hash)
 std::string printHash16or32(const Hash & hash)
 {
     assert(hash.type);
-    return hash.to_string(hash.type == htMD5 ? Base16 : Base32, false);
+    return hash.to_string(hash.type == htMD5 ? HashFormat::Base16 : HashFormat::Base32, false);
 }
 
 
-std::string Hash::to_string(Base base, bool includeType) const
+std::string Hash::to_string(HashFormat hashFormat, bool includeType) const
 {
     std::string s;
-    if (base == SRI || includeType) {
+    if (hashFormat == HashFormat::SRI || includeType) {
         s += printHashType(type);
-        s += base == SRI ? '-' : ':';
+        s += hashFormat == HashFormat::SRI ? '-' : ':';
     }
-    switch (base) {
-    case Base16:
+    switch (hashFormat) {
+    case HashFormat::Base16:
         s += printHash16(*this);
         break;
-    case Base32:
+    case HashFormat::Base32:
         s += printHash32(*this);
         break;
-    case Base64:
-    case SRI:
-        s += base64Encode(std::string((const char *) hash, hashSize));
+    case HashFormat::Base64:
+    case HashFormat::SRI:
+        s += base64Encode(std::string_view((const char *) hash, hashSize));
         break;
     }
     return s;
@@ -266,7 +267,7 @@ Hash newHashAllowEmpty(std::string_view hashStr, std::optional<HashType> ht)
         if (!ht)
             throw BadHash("empty hash requires explicit hash type");
         Hash h(*ht);
-        warn("found empty hash, assuming '%s'", h.to_string(SRI, true));
+        warn("found empty hash, assuming '%s'", h.to_string(HashFormat::SRI, true));
         return h;
     } else
         return Hash::parseAny(hashStr, ht);
@@ -342,7 +343,7 @@ HashSink::~HashSink()
     delete ctx;
 }
 
-void HashSink::write(std::string_view data)
+void HashSink::writeUnbuffered(std::string_view data)
 {
     bytes += data.size();
     update(ht, *ctx, data);
@@ -385,13 +386,48 @@ Hash compressHash(const Hash & hash, unsigned int newSize)
 }
 
 
+std::optional<HashFormat> parseHashFormatOpt(std::string_view hashFormatName)
+{
+    if (hashFormatName == "base16") return HashFormat::Base16;
+    if (hashFormatName == "base32") return HashFormat::Base32;
+    if (hashFormatName == "base64") return HashFormat::Base64;
+    if (hashFormatName == "sri") return HashFormat::SRI;
+    return std::nullopt;
+}
+
+HashFormat parseHashFormat(std::string_view hashFormatName)
+{
+    auto opt_f = parseHashFormatOpt(hashFormatName);
+    if (opt_f)
+        return *opt_f;
+    throw UsageError("unknown hash format '%1%', expect 'base16', 'base32', 'base64', or 'sri'", hashFormatName);
+}
+
+std::string_view printHashFormat(HashFormat HashFormat)
+{
+    switch (HashFormat) {
+    case HashFormat::Base64:
+        return "base64";
+    case HashFormat::Base32:
+        return "base32";
+    case HashFormat::Base16:
+        return "base16";
+    case HashFormat::SRI:
+        return "sri";
+    default:
+        // illegal hash base enum value internally, as opposed to external input
+        // which should be validated with nice error message.
+        assert(false);
+    }
+}
+
 std::optional<HashType> parseHashTypeOpt(std::string_view s)
 {
     if (s == "md5") return htMD5;
-    else if (s == "sha1") return htSHA1;
-    else if (s == "sha256") return htSHA256;
-    else if (s == "sha512") return htSHA512;
-    else return std::optional<HashType> {};
+    if (s == "sha1") return htSHA1;
+    if (s == "sha256") return htSHA256;
+    if (s == "sha512") return htSHA512;
+    return std::nullopt;
 }
 
 HashType parseHashType(std::string_view s)
@@ -400,10 +436,10 @@ HashType parseHashType(std::string_view s)
     if (opt_h)
         return *opt_h;
     else
-        throw UsageError("unknown hash algorithm '%1%'", s);
+        throw UsageError("unknown hash algorithm '%1%', expect 'md5', 'sha1', 'sha256', or 'sha512'", s);
 }
 
-std::string printHashType(HashType ht)
+std::string_view printHashType(HashType ht)
 {
     switch (ht) {
     case htMD5: return "md5";

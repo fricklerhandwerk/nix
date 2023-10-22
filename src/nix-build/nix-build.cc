@@ -84,7 +84,6 @@ static void main_nix_build(int argc, char * * argv)
     auto interactive = isatty(STDIN_FILENO) && isatty(STDERR_FILENO);
     Strings attrPaths;
     Strings left;
-    RepairFlag repair = NoRepair;
     BuildMode buildMode = bmNormal;
     bool readStdin = false;
 
@@ -169,11 +168,6 @@ static void main_nix_build(int argc, char * * argv)
         else if (*arg == "--dry-run")
             dryRun = true;
 
-        else if (*arg == "--repair") {
-            repair = Repair;
-            buildMode = bmRepair;
-        }
-
         else if (*arg == "--run-env") // obsolete
             runEnv = true;
 
@@ -219,9 +213,9 @@ static void main_nix_build(int argc, char * * argv)
                 // read the shebang to understand which packages to read from. Since
                 // this is handled via nix-shell -p, we wrap our ruby script execution
                 // in ruby -e 'load' which ignores the shebangs.
-                envCommand = (format("exec %1% %2% -e 'load(ARGV.shift)' -- %3% %4%") % execArgs % interpreter % shellEscape(script) % joined.str()).str();
+                envCommand = fmt("exec %1% %2% -e 'load(ARGV.shift)' -- %3% %4%", execArgs, interpreter, shellEscape(script), joined.str());
             } else {
-                envCommand = (format("exec %1% %2% %3% %4%") % execArgs % interpreter % shellEscape(script) % joined.str()).str();
+                envCommand = fmt("exec %1% %2% %3% %4%", execArgs, interpreter, shellEscape(script), joined.str());
             }
         }
 
@@ -249,7 +243,8 @@ static void main_nix_build(int argc, char * * argv)
     auto evalStore = myArgs.evalStoreUrl ? openStore(*myArgs.evalStoreUrl) : store;
 
     auto state = std::make_unique<EvalState>(myArgs.searchPath, evalStore, store);
-    state->repair = repair;
+    state->repair = myArgs.repair;
+    if (myArgs.repair) buildMode = bmRepair;
 
     auto autoArgs = myArgs.getAutoArgs(*state);
 
@@ -289,7 +284,7 @@ static void main_nix_build(int argc, char * * argv)
     else
         for (auto i : left) {
             if (fromArgs)
-                exprs.push_back(state->parseExprFromString(std::move(i), absPath(".")));
+                exprs.push_back(state->parseExprFromString(std::move(i), state->rootPath(CanonPath::fromCwd())));
             else {
                 auto absolute = i;
                 try {
@@ -349,7 +344,7 @@ static void main_nix_build(int argc, char * * argv)
         }
     }
 
-    state->printStats();
+    state->maybePrintStats();
 
     auto buildPaths = [&](const std::vector<DerivedPath> & paths) {
         /* Note: we do this even when !printMissing to efficiently
@@ -385,7 +380,9 @@ static void main_nix_build(int argc, char * * argv)
         if (!shell) {
 
             try {
-                auto expr = state->parseExprFromString("(import <nixpkgs> {}).bashInteractive", absPath("."));
+                auto expr = state->parseExprFromString(
+                    "(import <nixpkgs> {}).bashInteractive",
+                    state->rootPath(CanonPath::fromCwd()));
 
                 Value v;
                 state->eval(expr, v);
@@ -396,7 +393,7 @@ static void main_nix_build(int argc, char * * argv)
 
                 auto bashDrv = drv->requireDrvPath();
                 pathsToBuild.push_back(DerivedPath::Built {
-                    .drvPath = bashDrv,
+                    .drvPath = makeConstantStorePathRef(bashDrv),
                     .outputs = OutputsSpec::Names {"out"},
                 });
                 pathsToCopy.insert(bashDrv);
@@ -409,8 +406,22 @@ static void main_nix_build(int argc, char * * argv)
             }
         }
 
+        std::function<void(ref<SingleDerivedPath>, const DerivedPathMap<StringSet>::ChildNode &)> accumDerivedPath;
+
+        accumDerivedPath = [&](ref<SingleDerivedPath> inputDrv, const DerivedPathMap<StringSet>::ChildNode & inputNode) {
+            if (!inputNode.value.empty())
+                pathsToBuild.push_back(DerivedPath::Built {
+                    .drvPath = inputDrv,
+                    .outputs = OutputsSpec::Names { inputNode.value },
+                });
+            for (const auto & [outputName, childNode] : inputNode.childMap)
+                accumDerivedPath(
+                    make_ref<SingleDerivedPath>(SingleDerivedPath::Built { inputDrv, outputName }),
+                    childNode);
+        };
+
         // Build or fetch all dependencies of the derivation.
-        for (const auto & [inputDrv0, inputOutputs] : drv.inputDrvs) {
+        for (const auto & [inputDrv0, inputNode] : drv.inputDrvs.map) {
             // To get around lambda capturing restrictions in the
             // standard.
             const auto & inputDrv = inputDrv0;
@@ -419,10 +430,7 @@ static void main_nix_build(int argc, char * * argv)
                         return !std::regex_search(store->printStorePath(inputDrv), std::regex(exclude));
                     }))
             {
-                pathsToBuild.push_back(DerivedPath::Built {
-                    .drvPath = inputDrv,
-                    .outputs = OutputsSpec::Names { inputOutputs },
-                });
+                accumDerivedPath(makeConstantStorePathRef(inputDrv), inputNode);
                 pathsToCopy.insert(inputDrv);
             }
         }
@@ -440,7 +448,7 @@ static void main_nix_build(int argc, char * * argv)
             shell = store->printStorePath(shellDrvOutputs.at("out").value()) + "/bin/bash";
         }
 
-        if (settings.isExperimentalFeatureEnabled(Xp::CaDerivations)) {
+        if (experimentalFeatureSettings.isEnabled(Xp::CaDerivations)) {
             auto resolvedDrv = drv.tryResolve(*store);
             assert(resolvedDrv && "Successfully resolved the derivation");
             drv = *resolvedDrv;
@@ -485,13 +493,21 @@ static void main_nix_build(int argc, char * * argv)
 
         if (env.count("__json")) {
             StorePathSet inputs;
-            for (auto & [depDrvPath, wantedDepOutputs] : drv.inputDrvs) {
-                auto outputs = evalStore->queryPartialDerivationOutputMap(depDrvPath);
-                for (auto & i : wantedDepOutputs) {
+
+            std::function<void(const StorePath &, const DerivedPathMap<StringSet>::ChildNode &)> accumInputClosure;
+
+            accumInputClosure = [&](const StorePath & inputDrv, const DerivedPathMap<StringSet>::ChildNode & inputNode) {
+                auto outputs = evalStore->queryPartialDerivationOutputMap(inputDrv);
+                for (auto & i : inputNode.value) {
                     auto o = outputs.at(i);
                     store->computeFSClosure(*o, inputs);
                 }
-            }
+                for (const auto & [outputName, childNode] : inputNode.childMap)
+                    accumInputClosure(*outputs.at(outputName), childNode);
+            };
+
+            for (const auto & [inputDrv, inputNode] : drv.inputDrvs.map)
+                accumInputClosure(inputDrv, inputNode);
 
             ParsedDerivation parsedDrv(drvInfo.requireDrvPath(), drv);
 
@@ -593,7 +609,10 @@ static void main_nix_build(int argc, char * * argv)
             if (outputName == "")
                 throw Error("derivation '%s' lacks an 'outputName' attribute", store->printStorePath(drvPath));
 
-            pathsToBuild.push_back(DerivedPath::Built{drvPath, OutputsSpec::Names{outputName}});
+            pathsToBuild.push_back(DerivedPath::Built{
+                .drvPath = makeConstantStorePathRef(drvPath),
+                .outputs = OutputsSpec::Names{outputName},
+            });
             pathsToBuildOrdered.push_back({drvPath, {outputName}});
             drvsToCopy.insert(drvPath);
 

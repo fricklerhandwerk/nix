@@ -5,6 +5,9 @@ rec {
 
   concatStrings = concatStringsSep "";
 
+  attrsToList = a:
+    map (name: { inherit name; value = a.${name}; }) (builtins.attrNames a);
+
   replaceStringsRec = from: to: string:
     # recursively replace occurrences of `from` with `to` within `string`
     # example:
@@ -38,4 +41,9 @@ rec {
 
   filterAttrs = pred: set:
     listToAttrs (concatMap (name: let v = set.${name}; in if pred name v then [(nameValuePair name v)] else []) (attrNames set));
+
+  optionalString = cond: string: if cond then string else "";
+
+  indent = prefix: s:
+    concatStringsSep "\n" (map (x: if x == "" then x else "${prefix}${x}") (splitLines s));
 }

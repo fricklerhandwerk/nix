@@ -302,4 +302,46 @@ namespace nix {
         ASSERT_EQ(d, s);
     }
 
+
+    /* ----------------------------------------------------------------------------
+     * percentEncode
+     * --------------------------------------------------------------------------*/
+
+    TEST(percentEncode, encodesUrlEncodedString) {
+        std::string s = percentEncode("==@==");
+        std::string d = "%3D%3D%40%3D%3D";
+        ASSERT_EQ(d, s);
+    }
+
+    TEST(percentEncode, keepArgument) {
+        std::string a = percentEncode("abd / def");
+        std::string b = percentEncode("abd / def", "/");
+        ASSERT_EQ(a, "abd%20%2F%20def");
+        ASSERT_EQ(b, "abd%20/%20def");
+    }
+
+    TEST(percentEncode, inverseOfDecode) {
+        std::string original = "%3D%3D%40%3D%3D";
+        std::string once = percentEncode(original);
+        std::string back = percentDecode(once);
+
+        ASSERT_EQ(back, original);
+    }
+
+    TEST(percentEncode, trailingPercent) {
+        std::string s = percentEncode("==@==%");
+        std::string d = "%3D%3D%40%3D%3D%25";
+
+        ASSERT_EQ(d, s);
+    }
+
+    TEST(percentEncode, yen) {
+        // https://en.wikipedia.org/wiki/Percent-encoding#Character_data
+        std::string s = reinterpret_cast<const char*>(u8"円");
+        std::string e = "%E5%86%86";
+
+        ASSERT_EQ(percentEncode(s), e);
+        ASSERT_EQ(percentDecode(e), s);
+    }
+
 }

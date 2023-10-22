@@ -246,8 +246,15 @@ printf -v _OLD_LINE_FMT "%b" $'\033[1;7;31m-'"$ESC ${RED}%L${ESC}"
 printf -v _NEW_LINE_FMT "%b" $'\033[1;7;32m+'"$ESC ${GREEN}%L${ESC}"
 
 _diff() {
+    # macOS Ventura doesn't ship with GNU diff. Print similar output except
+    # without +/- markers or dimming
+    if diff --version | grep -q "Apple diff"; then
+        printf -v CHANGED_GROUP_FORMAT "%b" "${GREEN}%>${RED}%<${ESC}"
+        diff --changed-group-format="$CHANGED_GROUP_FORMAT" "$@"
+    else
     # simple colorized diff comatible w/ pre `--color` versions
-    diff --unchanged-group-format="$_UNCHANGED_GRP_FMT" --old-line-format="$_OLD_LINE_FMT" --new-line-format="$_NEW_LINE_FMT" --unchanged-line-format="  %L" "$@"
+        diff --unchanged-group-format="$_UNCHANGED_GRP_FMT" --old-line-format="$_OLD_LINE_FMT" --new-line-format="$_NEW_LINE_FMT" --unchanged-line-format="  %L" "$@"
+    fi
 }
 
 confirm_rm() {
@@ -445,6 +452,14 @@ EOF
         #       a row for different files.
         if [ -e "$profile_target$PROFILE_BACKUP_SUFFIX" ]; then
             # this backup process first released in Nix 2.1
+
+            if diff -q "$profile_target$PROFILE_BACKUP_SUFFIX" "$profile_target" > /dev/null; then
+                # a backup file for the rc-file exist, but they are identical,
+                # so we can safely ignore it and overwrite it with the same
+                # content later
+                continue
+            fi
+
             failure <<EOF
 I back up shell profile/rc scripts before I add Nix to them.
 I need to back up $profile_target to $profile_target$PROFILE_BACKUP_SUFFIX,
@@ -693,6 +708,10 @@ EOF
 }
 
 welcome_to_nix() {
+    local -r NIX_UID_RANGES="${NIX_FIRST_BUILD_UID}..$((NIX_FIRST_BUILD_UID + NIX_USER_COUNT - 1))"
+    local -r RANGE_TEXT=$(echo -ne "${BLUE}(uids [${NIX_UID_RANGES}])${ESC}")
+    local -r GROUP_TEXT=$(echo -ne "${BLUE}(gid ${NIX_BUILD_GROUP_ID})${ESC}")
+
     ok "Welcome to the Multi-User Nix Installation"
 
     cat <<EOF
@@ -706,8 +725,8 @@ manager. This will happen in a few stages:
 2. Show you what I am going to install and where. Then I will ask
    if you are ready to continue.
 
-3. Create the system users and groups that the Nix daemon uses to run
-   builds.
+3. Create the system users ${RANGE_TEXT} and groups ${GROUP_TEXT}
+   that the Nix daemon uses to run builds.
 
 4. Perform the basic installation of the Nix files daemon.
 
@@ -873,7 +892,7 @@ configure_shell_profile() {
         fi
     done
 
-    task "Setting up shell profiles for Fish with with ${PROFILE_FISH_SUFFIX} inside ${PROFILE_FISH_PREFIXES[*]}"
+    task "Setting up shell profiles for Fish with ${PROFILE_FISH_SUFFIX} inside ${PROFILE_FISH_PREFIXES[*]}"
     for fish_prefix in "${PROFILE_FISH_PREFIXES[@]}"; do
         if [ ! -d "$fish_prefix" ]; then
             # this specific prefix (ie: /etc/fish) is very likely to exist

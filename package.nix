@@ -13,6 +13,7 @@
 , brotli
 , bzip2
 , curl
+, cmake
 , editline
 , readline
 , fileset
@@ -31,9 +32,12 @@
 , mdbook
 , mdbook-linkcheck
 , mercurial
+, meson
+, ninja
 , openssh
 , openssl
 , pkg-config
+, python3
 , rapidcheck
 , sqlite
 , util-linux
@@ -152,6 +156,53 @@ mkDerivation (finalAttrs: let
   # to be run later, requiresthe unit tests to be built.
   buildUnitTests = doCheck || installUnitTests;
 
+
+  # Reimplementation of Nixpkgs' Meson cross file, with some additions to make
+  # it actually work.
+  mesonCrossFile =
+    let
+      cpuFamily =
+        platform:
+        with platform;
+        if isAarch32 then
+          "arm"
+        else if isx86_32 then
+          "x86"
+        else
+          platform.uname.processor;
+    in
+    builtins.toFile "lix-cross-file.conf" ''
+      [properties]
+      # Meson is convinced that if !buildPlatform.canExecute hostPlatform then we cannot
+      # build anything at all, which is not at all correct. If we can't execute the host
+      # platform, we'll just disable tests and doc gen.
+      needs_exe_wrapper = false
+
+      [binaries]
+      # Meson refuses to consider any CMake binary during cross compilation if it's
+      # not explicitly specified here, in the cross file.
+      # https://github.com/mesonbuild/meson/blob/0ed78cf6fa6d87c0738f67ae43525e661b50a8a2/mesonbuild/cmake/executor.py#L72
+      cmake = 'cmake'
+    '';
+
+  configureFiles = fileset.unions [ ./.version ];
+
+  topLevelBuildFiles = fileset.unions ([
+    ./meson.build
+    ./meson.options
+    ./meson
+    ./scripts/meson.build
+  ]);
+
+  functionalTestFiles = fileset.unions [
+    ./tests/functional
+    ./tests/unit
+    (fileset.fileFilter (f: lib.strings.hasPrefix "nix-profile" f.name) ./scripts)
+  ];
+
+  propagatedBuildInputs = [
+    nlohmann_json
+  ] ++ lib.optional enableGC boehmgc;
 in {
   inherit pname version;
 
@@ -162,6 +213,9 @@ in {
       fileset.toSource {
         root = ./.;
         fileset = fileset.intersection baseFiles (fileset.unions ([
+          configureFiles
+          topLevelBuildFiles
+          functionalTestFiles
           # For configure
           ./.version
           ./configure.ac
@@ -210,6 +264,28 @@ in {
     ++ lib.optional (doBuild && (enableManual || enableInternalAPIDocs || enableExternalAPIDocs)) "doc"
     ++ lib.optional installUnitTests "check";
 
+  mesonFlags =
+    lib.optionals stdenv.hostPlatform.isLinux [
+      # You'd think meson could just find this in PATH, but busybox is in buildInputs,
+      # which don't actually get added to PATH. And buildInputs is correct over
+      # nativeBuildInputs since this should be a busybox executable on the host.
+      "-Dsandbox-shell=${lib.getExe' busybox-sandbox-shell "busybox"}"
+    ]
+    ++ lib.optional stdenv.hostPlatform.isStatic "-Denable-embedded-sandbox-shell=true"
+    ++ lib.optional (finalAttrs.dontBuild) "-Denable-build=false"
+    ++ [
+      # mesonConfigurePhase automatically passes -Dauto_features=enabled,
+      # so we must explicitly enable or disable features that we are not passing
+      # dependencies for.
+      (lib.mesonEnable "internal-api-docs" internalApiDocs)
+      (lib.mesonBool "enable-tests" finalAttrs.doCheck)
+      (lib.mesonBool "enable-docs" canRunInstalled)
+    ]
+    ++ lib.optional (stdenv.hostPlatform != stdenv.buildPlatform) "--cross-file=${mesonCrossFile}";
+
+  # We only include CMake so that Meson can locate toml11, which only ships CMake dependency metadata.
+  dontUseCmakeConfigure = true;
+
   nativeBuildInputs = [
     autoconf-archive
     autoreconfHook
@@ -217,6 +293,10 @@ in {
   ] ++ lib.optionals doBuild [
     bison
     flex
+    ninja
+    cmake
+    meson
+    python3
   ] ++ lib.optionals enableManual [
     (lib.getBin lowdown)
     mdbook
@@ -259,10 +339,6 @@ in {
       })
   ;
 
-  propagatedBuildInputs = [
-    nlohmann_json
-  ] ++ lib.optional enableGC boehmgc;
-
   dontBuild = !attrs.doBuild;
   doCheck = attrs.doCheck;
 
@@ -288,30 +364,19 @@ in {
     ''
   );
 
-  configureFlags = [
-    (lib.enableFeature doBuild "build")
-    (lib.enableFeature buildUnitTests "unit-tests")
-    (lib.enableFeature doInstallCheck "functional-tests")
-    (lib.enableFeature enableInternalAPIDocs "internal-api-docs")
-    (lib.enableFeature enableExternalAPIDocs "external-api-docs")
-    (lib.enableFeature enableManual "doc-gen")
-    (lib.enableFeature enableGC "gc")
-    (lib.enableFeature enableMarkdown "markdown")
-    (lib.enableFeature installUnitTests "install-unit-tests")
-    (lib.withFeatureAs true "readline-flavor" readlineFlavor)
-  ] ++ lib.optionals (!forDevShell) [
-    "--sysconfdir=/etc"
-  ] ++ lib.optionals installUnitTests [
-    "--with-check-bin-dir=${builtins.placeholder "check"}/bin"
-    "--with-check-lib-dir=${builtins.placeholder "check"}/lib"
-  ] ++ lib.optionals (doBuild) [
-    "--with-boost=${boost}/lib"
-  ] ++ lib.optionals (doBuild && stdenv.isLinux) [
-    "--with-sandbox-shell=${busybox-sandbox-shell}/bin/busybox"
-  ] ++ lib.optional (doBuild && stdenv.isLinux && !(stdenv.hostPlatform.isStatic && stdenv.system == "aarch64-linux"))
-       "LDFLAGS=-fuse-ld=gold"
-    ++ lib.optional (doBuild && stdenv.hostPlatform.isStatic) "--enable-embedded-sandbox-shell"
-    ;
+  mesonBuildType = "debugoptimized";
+
+  mesonCheckFlags = [
+    "--suite=check"
+    "--print-errorlogs"
+  ];
+
+  # Make sure the internal API docs are already built, because mesonInstallPhase
+  # won't let us build them there. They would normally be built in buildPhase,
+  # but the internal API docs are conventionally built with doBuild = false.
+  preInstall = lib.optional internalApiDocs ''
+    meson ''${mesonBuildFlags:-} compile "$installTargets"
+  '';
 
   enableParallelBuilding = true;
 
@@ -364,12 +429,12 @@ in {
   # Work around buggy detection in stdenv.
   installCheckTarget = "installcheck";
 
-  # Work around weird bug where it doesn't think there is a Makefile.
-  installCheckPhase = if (!doBuild && doInstallCheck) then ''
+  installCheckPhase = ''
     runHook preInstallCheck
-    mkdir -p src/nix-channel
-    make installcheck -j$NIX_BUILD_CORES -l$NIX_BUILD_CORES
-  '' else null;
+    flagsArray=($mesonInstallCheckFlags "''${mesonInstallCheckFlagsArray[@]}")
+    meson test --no-rebuild "''${flagsArray[@]}"
+    runHook postInstallCheck
+  '';
 
   # Needed for tests if we are not doing a build, but testing existing
   # built Nix.

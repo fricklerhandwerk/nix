@@ -1,59 +1,58 @@
-# Nix-Perl Scripts
-#============================================================================
+store_xs_cpp = custom_target(
+  input : 'Store.xs',
+  output : 'Store.cc',
+  command : [
+    xsubpp,
+    '@INPUT@',
+    '-output',
+    '@OUTPUT@',
+  ],
+  build_by_default : true,
+)
 
+soname_args = []
+if cxx.get_linker_id() in ['ld.bfd', 'ld.gold']
+  soname_args = ['-Wl,-soname=Store.so']
+endif
 
+perl_libstore = shared_module(
+  'Store',
+  store_xs_cpp,
+  # This library does NOT get the normal libprefix. it's just `Store.so`, not `libStore.so`.
+  name_prefix : '',
+  dependencies : [
+    libstore,
+    sodium,
+    perl_include,
+  ],
+  link_args : [
+    # Nix doesn't provide a pkg-config file for libutil.
+    '-llixutil',
+    soname_args,
+  ],
+  install : true,
+  install_dir : perl_libdir / 'auto/Nix/Store',
+)
 
-# Sources
-#-------------------------------------------------
+config_pm = configure_file(
+  input : 'Config.pm.in',
+  output : 'Config.pm',
+  configuration : {
+    'PACKAGE_VERSION': meson.project_version(),
+  },
+)
 
-nix_perl_store_xs = files('Store.xs')
-
-nix_perl_scripts = files(
-  'CopyClosure.pm',
+nix_perl_sources = files(
+  'Store.pm',
   'Manifest.pm',
   'SSH.pm',
-  'Store.pm',
+  'CopyClosure.pm',
   'Utils.pm',
 )
 
-foreach f : nix_perl_scripts
-  fs.copyfile(f)
-endforeach
-
-
-# Targets
-#---------------------------------------------------
-
-nix_perl_scripts += configure_file(
-  output : 'Config.pm',
-  input : 'Config.pm.in',
-  configuration : nix_perl_conf,
-)
-
-nix_perl_store_cc = custom_target(
-  'Store.cc',
-  output : 'Store.cc',
-  input : nix_perl_store_xs,
-  command : [xsubpp, '@INPUT@', '-output', '@OUTPUT@'],
-)
-
-# Build Nix::Store Library
-#-------------------------------------------------
-nix_perl_store_lib = library(
-  'Store',
-  sources : nix_perl_store_cc,
-  name_prefix  : '',
-  install : true,
-  install_mode : 'rwxr-xr-x',
-  install_dir : join_paths(nix_perl_install_dir, 'auto', 'Nix', 'Store'),
-  dependencies : nix_perl_store_dep_list,
-)
-
-
-# Install Scripts
-#---------------------------------------------------
 install_data(
-  nix_perl_scripts,
-  install_mode : 'rw-r--r--',
-  install_dir : join_paths(nix_perl_install_dir,'Nix'),
+  nix_perl_sources,
+  config_pm,
+  install_dir : perl_libdir / 'Nix',
+  preserve_path : true,
 )
